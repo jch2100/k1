@@ -62,6 +62,10 @@ function defaultState() {
       },
     },
     goals: { monthlyRevenueTarget: 1000000, monthlyContentTarget: 12 },
+    integration: {
+      youtube: { apiKey: '', channelId: '', lastFetch: null, data: null },
+      rss: [],
+    },
     ideas: [
       { id: uid(), title: '월 10만원 만들기까지 30일 기록', notes: '시리즈 1편. 시작 동기 + 목표 공개', platform: 'YouTube', createdAt: todayStr() },
       { id: uid(), title: '내가 쓰는 콘텐츠 자동화 스택', notes: '제휴 링크 삽입 가능', platform: '블로그', createdAt: todayStr() },
@@ -81,7 +85,11 @@ function defaultState() {
 function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (!parsed.integration) parsed.integration = { youtube: { apiKey: '', channelId: '', lastFetch: null, data: null }, rss: [] };
+      return parsed;
+    }
   } catch (e) { /* noop */ }
   return defaultState();
 }
@@ -442,6 +450,133 @@ views.brand = function () {
 };
 
 /* =========================================================================
+ * 연동 패널 (YouTube + RSS)
+ * ========================================================================= */
+views.integration = function () {
+  if (!state.integration) state.integration = { youtube: { apiKey: '', channelId: '', lastFetch: null, data: null }, rss: [] };
+  const el = $('#view-integration');
+  const { youtube: yt, rss } = state.integration;
+  const ytD = yt.data;
+  const ytStat = ytD?.statistics || {};
+  const ytSnippet = ytD?.channel || {};
+
+  const fmtNum = (n) => Number(n || 0).toLocaleString('ko-KR');
+
+  el.innerHTML = `
+    <div class="view-head">
+      <div>
+        <h1>데이터 연동</h1>
+        <p>YouTube 채널 공개 지표와 RSS 피드를 가져와 파이프라인에 바로 추가하세요.</p>
+      </div>
+    </div>
+
+    <!-- ── YouTube ── -->
+    <div class="section-title">📺 YouTube 채널</div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="field-row">
+        <div class="field">
+          <label>YouTube Data API 키
+            <span class="muted" style="font-size:10px;font-weight:400;margin-left:4px">
+              Google Cloud Console → YouTube Data API v3 → 사용자 인증 정보 → API 키 생성 (무료)
+            </span>
+          </label>
+          <input id="yt_key" type="password" placeholder="AIzaSy..." value="${esc(yt.apiKey)}" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label>채널 ID
+            <span class="muted" style="font-size:10px;font-weight:400;margin-left:4px">
+              YouTube Studio → 설정 → 채널 → 고급 설정 → 채널 ID (UC로 시작)
+            </span>
+          </label>
+          <input id="yt_cid" placeholder="UCxxxxxxxxxxxxxxxxxxxx" value="${esc(yt.channelId)}" />
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <button class="btn" data-action="fetch-youtube">▶ 데이터 가져오기</button>
+        ${yt.lastFetch ? `<span class="muted" style="font-size:12px">마지막 업데이트: ${yt.lastFetch.slice(0, 16).replace('T', ' ')}</span>` : ''}
+        <span class="muted" style="font-size:11.5px">API 키는 브라우저 내 로컬에만 저장됩니다.</span>
+      </div>
+    </div>
+
+    ${ytD ? `
+    <div class="grid grid-4" style="margin-bottom:14px">
+      <div class="card stat">
+        <div class="stat-label">구독자</div>
+        <div class="stat-value" style="font-size:22px">${ytStat.hiddenSubscriberCount ? '비공개' : fmtNum(ytStat.subscriberCount)}</div>
+      </div>
+      <div class="card stat">
+        <div class="stat-label">총 조회수</div>
+        <div class="stat-value" style="font-size:22px">${fmtNum(ytStat.viewCount)}</div>
+      </div>
+      <div class="card stat">
+        <div class="stat-label">동영상 수</div>
+        <div class="stat-value" style="font-size:22px">${fmtNum(ytStat.videoCount)}</div>
+      </div>
+      <div class="card stat">
+        <div class="stat-label">채널</div>
+        <div class="stat-value" style="font-size:15px;font-weight:700;margin-top:10px">${esc(ytSnippet.title || '-')}</div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:20px">
+      <h3>최근 영상 (최대 6개)</h3>
+      ${(ytD.recentVideos || []).length ? ytD.recentVideos.map((v) => `
+        <div class="list-row">
+          <div class="grow">
+            <div class="row-title">${esc(v.title)}</div>
+            <div class="row-sub">${v.publishedAt || ''}</div>
+          </div>
+          <button class="btn small secondary" data-action="import-yt-video"
+            data-title="${esc(v.title)}" data-date="${esc(v.publishedAt || '')}" data-vid="${esc(v.id || '')}">
+            파이프라인 추가
+          </button>
+        </div>
+      `).join('') : '<div class="empty" style="padding:14px">최근 영상 없음</div>'}
+    </div>` : ''}
+
+    <!-- ── RSS ── -->
+    <div class="section-title">📡 RSS 피드</div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="field-row">
+        <div class="field"><label>피드 URL</label><input id="rss_url" placeholder="https://yourblog.com/rss" /></div>
+        <div class="field"><label>별칭 (선택)</label><input id="rss_label" placeholder="내 블로그" /></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <button class="btn" data-action="add-rss">＋ 피드 추가</button>
+        <span class="muted" style="font-size:11.5px">무료 프록시(api.rss2json.com) 사용 · 하루 1,000회 제한 · 인증 불필요</span>
+      </div>
+    </div>
+
+    ${rss.length ? rss.map((feed) => `
+      <div class="card" style="margin-bottom:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div>
+            <strong style="font-size:14px">${esc(feed.label || feed.url)}</strong>
+            <div class="muted" style="font-size:11px;margin-top:2px">${esc(feed.url)}</div>
+            ${feed.lastFetch ? `<div class="muted" style="font-size:11px">업데이트: ${feed.lastFetch.slice(0, 16).replace('T', ' ')}</div>` : ''}
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn small" data-action="fetch-rss" data-id="${feed.id}">새로고침</button>
+            <button class="icon-btn" data-action="delete-rss" data-id="${feed.id}">🗑️</button>
+          </div>
+        </div>
+        ${feed.items && feed.items.length ? feed.items.map((item) => `
+          <div class="list-row">
+            <div class="grow">
+              <div class="row-title">${esc(item.title)}</div>
+              <div class="row-sub">${esc(item.pubDate || '')}${item.description ? ' · ' + esc(item.description.slice(0, 80)) + '…' : ''}</div>
+            </div>
+            <button class="btn small secondary" data-action="import-rss-item"
+              data-title="${esc(item.title)}" data-link="${esc(item.link || '')}" data-date="${esc(item.pubDate || '')}">
+              파이프라인 추가
+            </button>
+          </div>
+        `).join('') : `<div class="empty" style="padding:14px">새로고침을 눌러 피드를 가져오세요.</div>`}
+      </div>
+    `).join('') : `<div class="empty"><div class="empty-icon">📡</div>아직 피드가 없습니다. 위에서 RSS URL을 추가하세요.<br/><span style="font-size:11.5px;color:var(--text-faint)">블로그, 뉴스레터, YouTube 채널 RSS(youtube.com/feeds/videos.xml?channel_id=UC…) 모두 지원</span></div>`}
+  `;
+};
+
+/* =========================================================================
  * 모달
  * ========================================================================= */
 function openModal(title, bodyHtml) {
@@ -555,6 +690,57 @@ document.addEventListener('click', (e) => {
     case 'save-brand': saveBrand(); break;
 
     case 'close-modal': closeModal(); break;
+
+    /* ── 연동 ── */
+    case 'fetch-youtube':
+      state.integration.youtube.apiKey = ($('#yt_key') || {}).value?.trim() || state.integration.youtube.apiKey;
+      state.integration.youtube.channelId = ($('#yt_cid') || {}).value?.trim() || state.integration.youtube.channelId;
+      save();
+      fetchYouTube();
+      break;
+
+    case 'add-rss': {
+      const url = ($('#rss_url') || {}).value?.trim();
+      if (!url) { toast('RSS URL을 입력하세요.'); break; }
+      const label = ($('#rss_label') || {}).value?.trim() || '';
+      state.integration.rss.push({ id: uid(), url, label, lastFetch: null, items: [] });
+      save();
+      const newId = state.integration.rss[state.integration.rss.length - 1].id;
+      render();
+      fetchRSS(newId);
+      break;
+    }
+
+    case 'fetch-rss':
+      fetchRSS(id);
+      break;
+
+    case 'delete-rss':
+      state.integration.rss = state.integration.rss.filter((f) => f.id !== id);
+      save(); render(); toast('피드를 제거했습니다.');
+      break;
+
+    case 'import-yt-video': {
+      const title = btn.dataset.title;
+      const date = btn.dataset.date;
+      const vid = btn.dataset.vid;
+      if (state.content.some((c) => c.title === title && c.platform === 'YouTube')) {
+        toast('이미 파이프라인에 있습니다.'); break;
+      }
+      state.content.push({ id: uid(), title, platform: 'YouTube', status: 'published', scheduledDate: date, publishedDate: date, link: vid ? `https://youtube.com/watch?v=${vid}` : '', notes: 'YouTube 연동으로 가져옴' });
+      save(); toast(`"${title.slice(0, 20)}…" 파이프라인에 추가됨`); navigate('pipeline');
+      break;
+    }
+
+    case 'import-rss-item': {
+      const title = btn.dataset.title;
+      const link = btn.dataset.link;
+      const date = btn.dataset.date;
+      if (state.content.some((c) => c.title === title)) { toast('이미 파이프라인에 있습니다.'); break; }
+      state.content.push({ id: uid(), title, platform: '블로그', status: 'published', scheduledDate: date, publishedDate: date, link, notes: 'RSS 연동으로 가져옴' });
+      save(); toast(`"${title.slice(0, 20)}…" 파이프라인에 추가됨`); navigate('pipeline');
+      break;
+    }
   }
 });
 
@@ -618,6 +804,63 @@ function saveBrand() {
   state.goals.monthlyRevenueTarget = parseFloat($('#b_revTarget').value) || 0;
   state.goals.monthlyContentTarget = parseInt($('#b_contentTarget').value) || 0;
   save(); closeModal(); render(); syncBrandHeader(); toast('브랜드 키트를 저장했습니다.');
+}
+
+/* =========================================================================
+ * YouTube / RSS 비동기 fetch
+ * ========================================================================= */
+async function fetchYouTube() {
+  const yt = state.integration.youtube;
+  if (!yt.apiKey || !yt.channelId) { toast('API 키와 채널 ID를 입력 후 저장하세요.'); return; }
+  toast('YouTube 데이터를 불러오는 중…');
+  try {
+    const base = 'https://www.googleapis.com/youtube/v3/';
+    const key = encodeURIComponent(yt.apiKey);
+    const cid = encodeURIComponent(yt.channelId);
+    const [sr, vr] = await Promise.all([
+      fetch(`${base}channels?part=statistics,snippet&id=${cid}&key=${key}`),
+      fetch(`${base}search?part=snippet&channelId=${cid}&maxResults=6&order=date&type=video&key=${key}`),
+    ]);
+    const [sd, vd] = await Promise.all([sr.json(), vr.json()]);
+    if (sd.error) throw new Error(sd.error.message);
+    if (!sd.items || sd.items.length === 0) throw new Error('채널을 찾을 수 없습니다. 채널 ID를 확인하세요.');
+    yt.data = {
+      channel: sd.items[0].snippet || {},
+      statistics: sd.items[0].statistics || {},
+      recentVideos: (vd.items || []).map((v) => ({
+        id: v.id?.videoId || '',
+        title: v.snippet?.title || '',
+        publishedAt: (v.snippet?.publishedAt || '').slice(0, 10),
+      })),
+    };
+    yt.lastFetch = new Date().toISOString();
+    save(); render(); toast('YouTube 데이터를 가져왔습니다.');
+  } catch (e) {
+    toast('YouTube 오류: ' + e.message);
+  }
+}
+
+async function fetchRSS(id) {
+  const feed = state.integration.rss.find((f) => f.id === id);
+  if (!feed) return;
+  toast(`${feed.label || 'RSS'} 피드를 불러오는 중…`);
+  try {
+    const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.url)}&count=10`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.status !== 'ok') throw new Error(data.message || '피드를 불러올 수 없습니다.');
+    if (!feed.label) feed.label = data.feed?.title || feed.url;
+    feed.items = (data.items || []).map((item) => ({
+      title: item.title || '(제목 없음)',
+      link: item.link || '',
+      pubDate: (item.pubDate || '').slice(0, 10),
+      description: (item.description || item.content || '').replace(/<[^>]+>/g, '').trim().slice(0, 120),
+    }));
+    feed.lastFetch = new Date().toISOString();
+    save(); render(); toast(`${feed.label} 피드를 가져왔습니다.`);
+  } catch (e) {
+    toast('RSS 오류: ' + e.message);
+  }
 }
 
 function syncBrandHeader() {
