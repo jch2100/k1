@@ -45,6 +45,7 @@ function toast(msg) {
 
 /* ---------- 상태 관리 ---------- */
 let state = load();
+let calendarMonth = monthKey();
 
 function defaultState() {
   const tMinus = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
@@ -261,6 +262,65 @@ views.pipeline = function () {
   `;
 };
 
+/* =========================================================================
+ * 콘텐츠 캘린더
+ * ========================================================================= */
+views.calendar = function () {
+  const el = $('#view-calendar');
+  const [year, month] = calendarMonth.split('-').map(Number);
+  const firstDay = new Date(year, month - 1, 1).getDay();
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const dayLabels = ['일', '월', '화', '수', '목', '금', '토'];
+
+  const contentMap = {};
+  state.content.forEach((c) => {
+    const date = c.status === 'published' ? (c.publishedDate || c.scheduledDate) : c.scheduledDate;
+    if (date && date.startsWith(calendarMonth)) {
+      if (!contentMap[date]) contentMap[date] = [];
+      contentMap[date].push(c);
+    }
+  });
+
+  let cells = '';
+  for (let i = 0; i < firstDay; i++) cells += `<div class="cal-cell empty"></div>`;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${calendarMonth}-${String(d).padStart(2, '0')}`;
+    const items = contentMap[dateStr] || [];
+    const isToday = dateStr === todayStr();
+    cells += `<div class="cal-cell${isToday ? ' today' : ''}" data-action="cal-day" data-date="${dateStr}">
+      <div class="cal-day-num">${d}</div>
+      ${items.map((c) => {
+        const s = STATUSES.find((x) => x.id === c.status) || STATUSES[0];
+        return `<div class="cal-item" style="border-left:3px solid ${s.color}" data-action="edit-content" data-id="${c.id}">${esc(c.title.slice(0, 18))}${c.title.length > 18 ? '…' : ''}</div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  const totalThisMonth = state.content.filter((c) => {
+    const d = c.scheduledDate || c.publishedDate;
+    return d && d.startsWith(calendarMonth);
+  }).length;
+
+  el.innerHTML = `
+    <div class="view-head">
+      <div>
+        <h1>콘텐츠 캘린더</h1>
+        <p>${year}년 ${month}월 · 총 ${totalThisMonth}개 콘텐츠. 날짜 클릭 시 해당 날 바로 추가.</p>
+      </div>
+      <button class="btn" data-action="add-content">＋ 콘텐츠 추가</button>
+    </div>
+    <div class="cal-nav">
+      <button class="btn secondary" data-action="cal-prev">← 이전달</button>
+      <span class="cal-month-label">${year}년 ${month}월</span>
+      <button class="btn secondary" data-action="cal-next">다음달 →</button>
+    </div>
+    <div class="cal-grid">
+      ${dayLabels.map((d) => `<div class="cal-head-cell">${d}</div>`).join('')}
+      ${cells}
+    </div>
+  `;
+};
+
 function contentCardHtml(c) {
   const d = daysUntil(c.scheduledDate);
   let dateHtml = '';
@@ -467,12 +527,12 @@ views.integration = function () {
     <div class="section-title">📡 RSS 피드</div>
     <div class="card" style="margin-bottom:14px">
       <div class="field-row">
-        <div class="field"><label>피드 URL</label><input id="rss_url" placeholder="https://yourblog.com/rss" /></div>
+        <div class="field"><label>블로그·채널 주소 또는 RSS URL</label><input id="rss_url" placeholder="yourblog.com 또는 youtube.com/@채널명 또는 직접 RSS URL" /></div>
         <div class="field"><label>별칭 (선택)</label><input id="rss_label" placeholder="내 블로그" /></div>
       </div>
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <button class="btn" data-action="add-rss">＋ 피드 추가</button>
-        <span class="muted" style="font-size:11.5px">무료 프록시(api.rss2json.com) 사용 · 하루 1,000회 제한 · 인증 불필요</span>
+        <button class="btn" data-action="add-rss">🔍 자동 분석 & 추가</button>
+        <span class="muted" style="font-size:11.5px">URL 붙여넣으면 RSS 자동 탐지 · youtube.com/@핸들 지원 · 인증 불필요</span>
       </div>
     </div>
 
@@ -502,7 +562,7 @@ views.integration = function () {
           </div>
         `).join('') : `<div class="empty" style="padding:14px">새로고침을 눌러 피드를 가져오세요.</div>`}
       </div>
-    `).join('') : `<div class="empty"><div class="empty-icon">📡</div>아직 피드가 없습니다. 위에서 RSS URL을 추가하세요.<br/><span style="font-size:11.5px;color:var(--text-faint)">블로그, 뉴스레터, YouTube 채널 RSS(youtube.com/feeds/videos.xml?channel_id=UC…) 모두 지원</span></div>`}
+    `).join('') : `<div class="empty"><div class="empty-icon">📡</div>아직 피드가 없습니다. 위에서 RSS URL을 추가하세요.<br/><span style="font-size:11.5px;color:var(--text-faint)">블로그·뉴스레터 주소나 youtube.com/@채널명을 붙여넣으면 RSS를 자동으로 찾아줍니다</span></div>`}
   `;
 };
 
@@ -623,14 +683,18 @@ document.addEventListener('click', (e) => {
 
     /* ── 연동 ── */
     case 'add-rss': {
-      const url = ($('#rss_url') || {}).value?.trim();
-      if (!url) { toast('RSS URL을 입력하세요.'); break; }
+      const rawUrl = ($('#rss_url') || {}).value?.trim();
+      if (!rawUrl) { toast('URL을 입력하세요.'); break; }
       const label = ($('#rss_label') || {}).value?.trim() || '';
-      state.integration.rss.push({ id: uid(), url, label, lastFetch: null, items: [] });
-      save();
-      const newId = state.integration.rss[state.integration.rss.length - 1].id;
-      render();
-      fetchRSS(newId);
+      toast('RSS를 분석하는 중…');
+      const timeout = new Promise((r) => setTimeout(() => r(rawUrl), 5000));
+      Promise.race([resolveRSSUrl(rawUrl).catch(() => rawUrl), timeout]).then((rssUrl) => {
+        if (!state.integration) state.integration = { rss: [] };
+        const entry = { id: uid(), url: rssUrl, label, lastFetch: null, items: [] };
+        state.integration.rss.push(entry);
+        save(); render();
+        fetchRSS(entry.id);
+      });
       break;
     }
 
@@ -641,6 +705,22 @@ document.addEventListener('click', (e) => {
     case 'delete-rss':
       state.integration.rss = state.integration.rss.filter((f) => f.id !== id);
       save(); render(); toast('피드를 제거했습니다.');
+      break;
+
+    case 'cal-prev': {
+      const [y, m] = calendarMonth.split('-').map(Number);
+      calendarMonth = new Date(y, m - 2, 1).toISOString().slice(0, 7);
+      render();
+      break;
+    }
+    case 'cal-next': {
+      const [y, m] = calendarMonth.split('-').map(Number);
+      calendarMonth = new Date(y, m, 1).toISOString().slice(0, 7);
+      render();
+      break;
+    }
+    case 'cal-day':
+      openModal('콘텐츠 추가', contentForm({ status: 'scheduled', platform: PLATFORMS[0], title: '', scheduledDate: btn.dataset.date, publishedDate: '', link: '', notes: '' }));
       break;
 
     case 'import-rss-item': {
@@ -718,8 +798,48 @@ function saveBrand() {
 }
 
 /* =========================================================================
- * RSS 비동기 fetch
+ * RSS URL 자동 탐지 + fetch
  * ========================================================================= */
+async function resolveRSSUrl(inputUrl) {
+  const url = inputUrl.trim();
+  const lower = url.toLowerCase();
+
+  // 이미 피드 URL인 경우 그대로 사용
+  if (lower.match(/\/(rss|feed|atom)(\.xml)?(\?|$)/) || lower.endsWith('.xml') || lower.endsWith('.rss') || lower.includes('feeds/videos.xml')) {
+    return url;
+  }
+
+  // youtube.com/channel/UCxxx → 바로 변환
+  const ytCh = url.match(/youtube\.com\/channel\/(UC[\w-]+)/i);
+  if (ytCh) return `https://www.youtube.com/feeds/videos.xml?channel_id=${ytCh[1]}`;
+
+  // youtube.com/@handle 또는 /c/ 또는 /user/ → 페이지에서 channelId 추출
+  if (lower.includes('youtube.com/')) {
+    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
+    const data = await res.json();
+    const match = (data.contents || '').match(/"channelId":"(UC[\w-]+)"/);
+    if (match) return `https://www.youtube.com/feeds/videos.xml?channel_id=${match[1]}`;
+    throw new Error('YouTube 채널 ID를 찾을 수 없습니다.');
+  }
+
+  // 일반 URL → HTML에서 RSS link 태그 탐색
+  const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
+  if (!res.ok) return url;
+  const data = await res.json();
+  const html = data.contents || '';
+  const tags = [...html.matchAll(/<link([^>]+)>/gi)];
+  for (const [, attrs] of tags) {
+    if (!/application\/(rss|atom)\+xml/i.test(attrs)) continue;
+    const m = attrs.match(/href="([^"]+)"/i) || attrs.match(/href='([^']+)'/i);
+    if (!m) continue;
+    let rssUrl = m[1];
+    if (rssUrl.startsWith('//')) rssUrl = 'https:' + rssUrl;
+    else if (rssUrl.startsWith('/')) { const b = new URL(url); rssUrl = `${b.protocol}//${b.host}${rssUrl}`; }
+    return rssUrl;
+  }
+  return url; // fallback: rss2json이 직접 시도
+}
+
 async function fetchRSS(id) {
   const feed = state.integration.rss.find((f) => f.id === id);
   if (!feed) return;
