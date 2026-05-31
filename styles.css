@@ -79,6 +79,15 @@ body {
 .ghost-btn:hover { background: var(--surface-2); color: var(--text); }
 .ghost-btn.danger:hover { color: var(--red); border-color: var(--red); }
 
+/* Sync */
+.sync-box { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 6px; }
+.sync-label { font-size: 11px; color: var(--text-dim); font-weight: 600; margin-bottom: 8px; }
+.sync-id-input { width: 100%; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 6px 9px; border-radius: 7px; font-size: 10.5px; font-family: monospace; margin-bottom: 7px; }
+.sync-id-input:focus { outline: none; border-color: var(--accent); }
+.sync-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-bottom: 6px; }
+.sync-actions .ghost-btn { padding: 6px 4px; font-size: 11px; text-align: center; }
+.sync-status-text { font-size: 10.5px; color: var(--text-faint); min-height: 14px; }
+
 /* Main */
 .main { flex: 1; padding: 28px 36px; max-width: 1200px; }
 .view.hidden { display: none; }

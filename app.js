@@ -863,6 +863,78 @@ async function fetchRSS(id) {
   }
 }
 
+/* =========================================================================
+ * 클라우드 동기화 (jsonblob.com — API 키 불필요)
+ * ========================================================================= */
+const SYNC_ID_KEY = 'content-studio-sync-id';
+const JSONBLOB = 'https://jsonblob.com/api/jsonBlob';
+
+function setSyncStatus(msg) { const el = $('#syncStatus'); if (el) el.textContent = msg; }
+
+async function syncCreate() {
+  setSyncStatus('새 동기화 생성 중…');
+  try {
+    const res = await fetch(JSONBLOB, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(state),
+    });
+    if (!res.ok) throw new Error(`서버 오류 (${res.status})`);
+    const loc = res.headers.get('Location') || '';
+    const id = loc.split('/').filter(Boolean).pop() || '';
+    if (id.length < 8) throw new Error('ID를 받지 못했습니다. 잠시 후 다시 시도해 주세요.');
+    localStorage.setItem(SYNC_ID_KEY, id);
+    const inp = $('#syncId'); if (inp) inp.value = id;
+    setSyncStatus('✓ 생성 완료 · ID를 다른 기기에 입력하세요');
+    toast('동기화 ID가 생성됐습니다. 다른 기기에서 ID를 입력 후 ↓ 불러오기 하세요.');
+  } catch (e) {
+    setSyncStatus('오류: ' + e.message);
+    toast('생성 실패: ' + e.message);
+  }
+}
+
+async function syncUpload() {
+  const id = (($('#syncId') || {}).value || '').trim() || localStorage.getItem(SYNC_ID_KEY) || '';
+  if (!id) { toast('"새로 시작"을 눌러 동기화 ID를 먼저 만드세요.'); return; }
+  localStorage.setItem(SYNC_ID_KEY, id);
+  setSyncStatus('저장 중…');
+  try {
+    const res = await fetch(`${JSONBLOB}/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(state),
+    });
+    if (!res.ok) throw new Error(`오류 (${res.status})`);
+    setSyncStatus('↑ ' + new Date().toLocaleTimeString('ko-KR') + ' 저장됨');
+    toast('클라우드에 저장됐습니다.');
+  } catch (e) {
+    setSyncStatus('오류: ' + e.message);
+    toast('저장 실패: ' + e.message);
+  }
+}
+
+async function syncDownload() {
+  const id = (($('#syncId') || {}).value || '').trim() || localStorage.getItem(SYNC_ID_KEY) || '';
+  if (!id) { toast('동기화 ID를 입력 후 ↓ 불러오기를 누르세요.'); return; }
+  localStorage.setItem(SYNC_ID_KEY, id);
+  const inp = $('#syncId'); if (inp) inp.value = id;
+  setSyncStatus('불러오는 중…');
+  try {
+    const res = await fetch(`${JSONBLOB}/${id}`, { headers: { 'Accept': 'application/json' } });
+    if (!res.ok) throw new Error(`ID를 확인해 주세요 (${res.status})`);
+    const data = await res.json();
+    if (!data || !data.brand) throw new Error('올바른 동기화 데이터가 아닙니다.');
+    state = data;
+    if (!state.integration) state.integration = { rss: [] };
+    save(); syncBrandHeader(); navigate(currentView);
+    setSyncStatus('↓ ' + new Date().toLocaleTimeString('ko-KR') + ' 불러옴');
+    toast('다른 기기의 데이터를 가져왔습니다.');
+  } catch (e) {
+    setSyncStatus('오류: ' + e.message);
+    toast('불러오기 실패: ' + e.message);
+  }
+}
+
 function syncBrandHeader() {
   $('#brandName').textContent = state.brand.name || 'Content Studio';
   $('#brandTagline').textContent = state.brand.tagline || '퍼스널 브랜딩 수익화';
@@ -906,3 +978,11 @@ $('#modalBackdrop').addEventListener('click', (e) => { if (e.target.id === 'moda
 /* ---------- 초기 렌더 ---------- */
 syncBrandHeader();
 navigate('dashboard');
+
+/* ---------- 동기화 버튼 ---------- */
+$('#syncCreateBtn').addEventListener('click', syncCreate);
+$('#syncUpBtn').addEventListener('click', syncUpload);
+$('#syncDownBtn').addEventListener('click', syncDownload);
+
+const _savedSyncId = localStorage.getItem(SYNC_ID_KEY);
+if (_savedSyncId && $('#syncId')) { $('#syncId').value = _savedSyncId; setSyncStatus('이전 동기화 ID 복원됨'); }

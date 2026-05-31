@@ -30,6 +30,16 @@
         <button id="importBtn" class="ghost-btn">가져오기</button>
         <button id="resetBtn" class="ghost-btn danger">초기화</button>
         <input type="file" id="importFile" accept="application/json" hidden />
+        <div class="sync-box">
+          <div class="sync-label">☁️ 기기간 동기화</div>
+          <input id="syncId" class="sync-id-input" placeholder="동기화 ID 없으면 → 새로 시작" autocomplete="off" />
+          <div class="sync-actions">
+            <button id="syncCreateBtn" class="ghost-btn">새로 시작</button>
+            <button id="syncUpBtn" class="ghost-btn">↑ 저장</button>
+            <button id="syncDownBtn" class="ghost-btn">↓ 불러오기</button>
+          </div>
+          <div id="syncStatus" class="sync-status-text"></div>
+        </div>
       </div>
     </aside>
 
