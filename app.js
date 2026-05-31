@@ -515,34 +515,29 @@ views.integration = function () {
   const el = $('#view-integration');
   const { rss } = state.integration;
 
-  el.innerHTML = `
-    <div class="view-head">
-      <div>
-        <h1>RSS 피드 연동</h1>
-        <p>블로그·뉴스레터·유튜브 채널 등 RSS 피드를 구독해 최신 글을 파이프라인으로 바로 가져오세요.</p>
-      </div>
-    </div>
+  const ownFeeds = rss.filter((f) => f.feedType !== 'ref');
+  const refFeeds = rss.filter((f) => f.feedType === 'ref');
 
-    <!-- ── RSS ── -->
-    <div class="section-title">📡 RSS 피드</div>
-    <div class="card" style="margin-bottom:14px">
-      <div class="field-row">
-        <div class="field"><label>블로그·채널 주소 또는 RSS URL</label><input id="rss_url" placeholder="yourblog.com 또는 youtube.com/@채널명 또는 직접 RSS URL" /></div>
-        <div class="field"><label>별칭 (선택)</label><input id="rss_label" placeholder="내 블로그" /></div>
-      </div>
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <button class="btn" data-action="add-rss">🔍 자동 분석 & 추가</button>
-        <span class="muted" style="font-size:11.5px">URL 붙여넣으면 RSS 자동 탐지 · youtube.com/@핸들 지원 · 인증 불필요</span>
-      </div>
-    </div>
+  const feedCard = (feed) => {
+    const isRef = feed.feedType === 'ref';
+    const accentColor = isRef ? 'var(--amber)' : 'var(--accent)';
+    const badge = isRef
+      ? `<span class="chip" style="background:var(--amber-soft);color:var(--amber)">참고</span>`
+      : `<span class="chip" style="background:var(--accent-soft);color:var(--accent)">내 채널</span>`;
+    const importBtn = isRef
+      ? `<button class="btn small" style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber)" data-action="import-rss-idea" data-title="${esc(item.title)}" data-link="${esc(item.link||'')}" data-platform="${esc(feed.label||feed.url)}">💡 아이디어 저장</button>`
+      : `<button class="btn small secondary" data-action="import-rss-item" data-title="${esc(item.title)}" data-link="${esc(item.link||'')}" data-date="${esc(item.pubDate||'')}">파이프라인 추가</button>`;
 
-    ${rss.length ? rss.map((feed) => `
-      <div class="card" style="margin-bottom:12px">
+    return `
+      <div class="card" style="margin-bottom:12px;border-left:3px solid ${accentColor}">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <div>
-            <strong style="font-size:14px">${esc(feed.label || feed.url)}</strong>
-            <div class="muted" style="font-size:11px;margin-top:2px">${esc(feed.url)}</div>
-            ${feed.lastFetch ? `<div class="muted" style="font-size:11px">업데이트: ${feed.lastFetch.slice(0, 16).replace('T', ' ')}</div>` : ''}
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+              <strong style="font-size:14px">${esc(feed.label || feed.url)}</strong>
+              ${badge}
+            </div>
+            <div class="muted" style="font-size:11px">${esc(feed.url)}</div>
+            ${feed.lastFetch ? `<div class="muted" style="font-size:11px">업데이트: ${feed.lastFetch.slice(0, 16).replace('T', ' ')} · ${(feed.items||[]).length}개 글</div>` : ''}
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn small" data-action="fetch-rss" data-id="${feed.id}">새로고침</button>
@@ -555,14 +550,50 @@ views.integration = function () {
               <div class="row-title">${esc(item.title)}</div>
               <div class="row-sub">${esc(item.pubDate || '')}${item.description ? ' · ' + esc(item.description.slice(0, 80)) + '…' : ''}</div>
             </div>
-            <button class="btn small secondary" data-action="import-rss-item"
-              data-title="${esc(item.title)}" data-link="${esc(item.link || '')}" data-date="${esc(item.pubDate || '')}">
-              파이프라인 추가
-            </button>
+            ${isRef
+              ? `<button class="btn small" style="background:var(--amber-soft);color:var(--amber);border:1px solid rgba(227,168,74,0.3)" data-action="import-rss-idea"
+                  data-title="${esc(item.title)}" data-link="${esc(item.link||'')}" data-platform="${esc(feed.label||feed.url)}">💡 아이디어 저장</button>`
+              : `<button class="btn small secondary" data-action="import-rss-item"
+                  data-title="${esc(item.title)}" data-link="${esc(item.link||'')}" data-date="${esc(item.pubDate||'')}">파이프라인 추가</button>`
+            }
           </div>
-        `).join('') : `<div class="empty" style="padding:14px">새로고침을 눌러 피드를 가져오세요.</div>`}
+        `).join('') : `<div class="empty" style="padding:14px">새로고침을 눌러 글을 가져오세요.</div>`}
+      </div>`;
+  };
+
+  el.innerHTML = `
+    <div class="view-head">
+      <div>
+        <h1>RSS 피드 연동</h1>
+        <p>내 채널은 파이프라인으로, 참고 블로그는 아이디어 인박스로 바로 저장됩니다.</p>
       </div>
-    `).join('') : `<div class="empty"><div class="empty-icon">📡</div>아직 피드가 없습니다. 위에서 RSS URL을 추가하세요.<br/><span style="font-size:11.5px;color:var(--text-faint)">블로그·뉴스레터 주소나 youtube.com/@채널명을 붙여넣으면 RSS를 자동으로 찾아줍니다</span></div>`}
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="field-row">
+        <div class="field"><label>블로그·채널 주소 또는 RSS URL</label>
+          <input id="rss_url" placeholder="blog.naver.com/xxx, youtube.com/@채널명, 또는 직접 RSS URL" /></div>
+        <div class="field"><label>별칭 (선택)</label><input id="rss_label" placeholder="메르의 블로그" /></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
+          <input type="radio" name="feedType" value="own" id="ft_own" />
+          <span>내 채널 <span class="muted" style="font-size:11px">(파이프라인으로 추가)</span></span>
+        </label>
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
+          <input type="radio" name="feedType" value="ref" id="ft_ref" checked />
+          <span>참고 블로그 <span class="muted" style="font-size:11px">(아이디어 인박스로 저장)</span></span>
+        </label>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <button class="btn" data-action="add-rss">🔍 자동 분석 & 추가</button>
+        <span class="muted" style="font-size:11.5px">URL만 넣으면 RSS 자동 탐지 · 네이버 블로그 지원</span>
+      </div>
+    </div>
+
+    ${refFeeds.length ? `<div class="section-title">📌 참고 블로그</div>${refFeeds.map(feedCard).join('')}` : ''}
+    ${ownFeeds.length ? `<div class="section-title">📡 내 채널</div>${ownFeeds.map(feedCard).join('')}` : ''}
+    ${!rss.length ? `<div class="empty"><div class="empty-icon">📡</div>피드가 없습니다.<br/><span style="font-size:11.5px;color:var(--text-faint)">네이버 블로그는 blog.naver.com/아이디 형식으로 입력하세요</span></div>` : ''}
   `;
 };
 
@@ -686,11 +717,13 @@ document.addEventListener('click', (e) => {
       const rawUrl = ($('#rss_url') || {}).value?.trim();
       if (!rawUrl) { toast('URL을 입력하세요.'); break; }
       const label = ($('#rss_label') || {}).value?.trim() || '';
+      const feedTypeEl = document.querySelector('input[name="feedType"]:checked');
+      const feedType = feedTypeEl ? feedTypeEl.value : 'ref';
       toast('RSS를 분석하는 중…');
       const timeout = new Promise((r) => setTimeout(() => r(rawUrl), 5000));
       Promise.race([resolveRSSUrl(rawUrl).catch(() => rawUrl), timeout]).then((rssUrl) => {
         if (!state.integration) state.integration = { rss: [] };
-        const entry = { id: uid(), url: rssUrl, label, lastFetch: null, items: [] };
+        const entry = { id: uid(), url: rssUrl, label, feedType, lastFetch: null, items: [] };
         state.integration.rss.push(entry);
         save(); render();
         fetchRSS(entry.id);
@@ -730,6 +763,16 @@ document.addEventListener('click', (e) => {
       if (state.content.some((c) => c.title === title)) { toast('이미 파이프라인에 있습니다.'); break; }
       state.content.push({ id: uid(), title, platform: '블로그', status: 'published', scheduledDate: date, publishedDate: date, link, notes: 'RSS 연동으로 가져옴' });
       save(); toast(`"${title.slice(0, 20)}…" 파이프라인에 추가됨`); navigate('pipeline');
+      break;
+    }
+
+    case 'import-rss-idea': {
+      const title = btn.dataset.title;
+      const link = btn.dataset.link;
+      const platform = btn.dataset.platform || '블로그';
+      if (state.ideas.some((i) => i.title === title)) { toast('이미 아이디어 인박스에 있습니다.'); break; }
+      state.ideas.unshift({ id: uid(), title, platform: '블로그', notes: `참고: ${platform}${link ? ' · ' + link : ''}`, createdAt: todayStr() });
+      save(); toast(`💡 "${title.slice(0, 20)}…" 아이디어 인박스에 저장됨`);
       break;
     }
   }
